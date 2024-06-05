@@ -7,13 +7,15 @@ import {
   getFirestore,
   collection,
   getDocs,
-  query,
-  where,
-  getDoc,
   doc,
   updateDoc,
   addDoc,
 } from 'firebase/firestore';
+import path from 'path';
+import { fileURLToPath } from 'url'; // Import fileURLToPath to use import.meta.url
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const firebaseConfig = {
   apiKey: process.env.EXPO_PUBLIC_FIREBASE_APIKEY,
@@ -26,6 +28,8 @@ const firebaseConfig = {
 
 // Initialize Firebase
 firebase.initializeApp(firebaseConfig);
+
+const db = getFirestore(); // Initialize Firestore
 
 const app = express();
 const port = process.env.PORT || 3001;
@@ -71,9 +75,11 @@ app.post('/send-email', (req, res) => {
   axios(config)
     .then(function (response) {
       console.log('Success!!!', JSON.stringify(response.data));
+      res.status(200).json({ message: 'Email sent successfully!' });
     })
     .catch(function (error) {
       console.log(error);
+      res.status(500).json({ error: 'Failed to send email' });
     });
 });
 
@@ -82,10 +88,10 @@ app.get('/record-behavior', async (req, res) => {
 
   try {
     // Get the group document
-    const groupRef = db.collection('groups').doc(groupId);
-    const groupDoc = await groupRef.get();
+    const groupRef = doc(db, 'groups', groupId);
+    const groupDoc = await getDoc(groupRef);
 
-    if (!groupDoc.exists) {
+    if (!groupDoc.exists()) {
       return res.status(404).json({ error: 'Group not found' });
     }
 
@@ -105,7 +111,7 @@ app.get('/record-behavior', async (req, res) => {
     };
 
     // Update the group document
-    await groupRef.update(updatedGroup);
+    await updateDoc(groupRef, updatedGroup);
 
     // Redirect the user to the phishing page
     res.redirect('/phishing-link');
@@ -118,7 +124,7 @@ app.get('/record-behavior', async (req, res) => {
 const testFirebaseConnection = async () => {
   try {
     // Get a reference to the Firestore database
-    const testDocRef = collection(getFirestore(), 'groups');
+    const testDocRef = collection(db, 'groups');
 
     const querySnapshot = await getDocs(testDocRef);
     querySnapshot.forEach(doc => {
@@ -131,7 +137,7 @@ const testFirebaseConnection = async () => {
   }
 };
 
-await testFirebaseConnection();
+testFirebaseConnection();
 
 app.listen(port, () => {
   console.log(`Server is running on port ${port}`);
