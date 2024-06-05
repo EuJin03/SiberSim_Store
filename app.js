@@ -38,7 +38,7 @@ app.use(express.static('public'));
 
 // Route to serve the landing page
 app.get('/', (req, res) => {
-  res.sendFile(path.join(__dirname, 'landing.html'));
+  res.sendFile(path.join(__dirname, 'index.html'));
 });
 
 // Route to serve the phishing page
