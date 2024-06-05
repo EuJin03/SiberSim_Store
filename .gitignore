@@ -31,3 +31,5 @@ node_modules/
 # Ignore sensitive or private files
 secrets/
 credentials.json
+
+./serviceAccountKey.json

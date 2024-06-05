@@ -1,63 +1,138 @@
-const express = require('express');
+import { config } from 'dotenv';
+config();
+import express from 'express';
+import axios from 'axios';
+import firebase from 'firebase/compat/app';
+import {
+  getFirestore,
+  collection,
+  getDocs,
+  query,
+  where,
+  getDoc,
+  doc,
+  updateDoc,
+  addDoc,
+} from 'firebase/firestore';
+
+const firebaseConfig = {
+  apiKey: process.env.EXPO_PUBLIC_FIREBASE_APIKEY,
+  authDomain: process.env.EXPO_PUBLIC_FIREBASE_AUTHDOMAIN,
+  projectId: process.env.EXPO_PUBLIC_FIREBASE_PROJECTID,
+  storageBucket: process.env.EXPO_PUBLIC_FIREBASE_STORAGEBUCKET,
+  messagingSenderId: process.env.EXPO_PUBLIC_FIREBASE_MESSAGINGSENDERID,
+  appId: process.env.EXPO_PUBLIC_FIREBASE_APPID,
+};
+
+// Initialize Firebase
+firebase.initializeApp(firebaseConfig);
+
 const app = express();
 const port = process.env.PORT || 3001;
 
-app.get('/', (req, res) => res.type('html').send(html));
+// Middleware to parse request body
+app.use(express.json());
 
-const server = app.listen(port, () =>
-  console.log(`Example app listening on port ${port}!`)
-);
+// Serve static files from the "public" directory
+app.use(express.static('public'));
 
-server.keepAliveTimeout = 120 * 1000;
-server.headersTimeout = 120 * 1000;
+// Route to serve the landing page
+app.get('/', (req, res) => {
+  res.sendFile(path.join(__dirname, 'landing.html'));
+});
 
-const html = `
-<!DOCTYPE html>
-<html>
-  <head>
-    <title>Hello from Render!</title>
-    <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.5.1/dist/confetti.browser.min.js"></script>
-    <script>
-      setTimeout(() => {
-        confetti({
-          particleCount: 100,
-          spread: 70,
-          origin: { y: 0.6 },
-          disableForReducedMotion: true
-        });
-      }, 500);
-    </script>
-    <style>
-      @import url("https://p.typekit.net/p.css?s=1&k=vnd5zic&ht=tk&f=39475.39476.39477.39478.39479.39480.39481.39482&a=18673890&app=typekit&e=css");
-      @font-face {
-        font-family: "neo-sans";
-        src: url("https://use.typekit.net/af/00ac0a/00000000000000003b9b2033/27/l?primer=7cdcb44be4a7db8877ffa5c0007b8dd865b3bbc383831fe2ea177f62257a9191&fvd=n7&v=3") format("woff2"), url("https://use.typekit.net/af/00ac0a/00000000000000003b9b2033/27/d?primer=7cdcb44be4a7db8877ffa5c0007b8dd865b3bbc383831fe2ea177f62257a9191&fvd=n7&v=3") format("woff"), url("https://use.typekit.net/af/00ac0a/00000000000000003b9b2033/27/a?primer=7cdcb44be4a7db8877ffa5c0007b8dd865b3bbc383831fe2ea177f62257a9191&fvd=n7&v=3") format("opentype");
-        font-style: normal;
-        font-weight: 700;
-      }
-      html {
-        font-family: neo-sans;
-        font-weight: 700;
-        font-size: calc(62rem / 16);
-      }
-      body {
-        background: white;
-      }
-      section {
-        border-radius: 1em;
-        padding: 1em;
-        position: absolute;
-        top: 50%;
-        left: 50%;
-        margin-right: -50%;
-        transform: translate(-50%, -50%);
-      }
-    </style>
-  </head>
-  <body>
-    <section>
-      Hello from Render!
-    </section>
-  </body>
-</html>
-`;
+// Route to serve the phishing page
+app.get('/phishing-link', (req, res) => {
+  res.sendFile(path.join(__dirname, 'phishing.html'));
+});
+
+// Route to send email templates
+app.post('/send-email', (req, res) => {
+  const { template, params } = req.body;
+
+  const data = JSON.stringify({
+    service_id: process.env.EMAILJS_SERVICEID,
+    template_id: template,
+    user_id: process.env.EMAILJS_PUBLICKEY,
+    template_params: params,
+    accessToken: process.env.EMAILJS_PRIVATEKEY,
+  });
+
+  const config = {
+    method: 'post',
+    url: 'https://api.emailjs.com/api/v1.0/email/send',
+    headers: {
+      'Access-Control-Allow': '*',
+      'Content-Type': 'application/json',
+    },
+    data: data,
+  };
+
+  axios(config)
+    .then(function (response) {
+      console.log('Success!!!', JSON.stringify(response.data));
+    })
+    .catch(function (error) {
+      console.log(error);
+    });
+});
+
+app.get('/record-behavior', async (req, res) => {
+  const { templateId, userId, groupId } = req.query;
+
+  try {
+    // Get the group document
+    const groupRef = db.collection('groups').doc(groupId);
+    const groupDoc = await groupRef.get();
+
+    if (!groupDoc.exists) {
+      return res.status(404).json({ error: 'Group not found' });
+    }
+
+    const groupData = groupDoc.data();
+
+    // Create a new result
+    const newResult = {
+      user: userId,
+      templateId: templateId,
+      comment: 'User clicked the phishing link',
+    };
+
+    // Add the new result to the group's results array
+    const updatedGroup = {
+      ...groupData,
+      results: [...(groupData.results || []), newResult],
+    };
+
+    // Update the group document
+    await groupRef.update(updatedGroup);
+
+    // Redirect the user to the phishing page
+    res.redirect('/phishing-link');
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: 'Internal Server Error' });
+  }
+});
+
+const testFirebaseConnection = async () => {
+  try {
+    // Get a reference to the Firestore database
+    const testDocRef = collection(getFirestore(), 'groups');
+
+    const querySnapshot = await getDocs(testDocRef);
+    querySnapshot.forEach(doc => {
+      console.log(doc.id, ' => ', doc.data());
+    });
+
+    console.log('Firebase connection successful!');
+  } catch (error) {
+    console.error('Error connecting to Firebase:', error);
+  }
+};
+
+await testFirebaseConnection();
+
+app.listen(port, () => {
+  console.log(`Server is running on port ${port}`);
+});
