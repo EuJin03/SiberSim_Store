@@ -13,6 +13,7 @@ import {
 } from 'firebase/firestore';
 import path from 'path';
 import { fileURLToPath } from 'url'; // Import fileURLToPath to use import.meta.url
+import cors from 'cors';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -34,6 +35,8 @@ const db = getFirestore(); // Initialize Firestore
 const app = express();
 const port = process.env.PORT || 3001;
 
+app.use(cors());
+
 // Middleware to parse request body
 app.use(express.json());
 
@@ -51,7 +54,7 @@ app.get('/phishing-link', (req, res) => {
 });
 
 // Route to send email templates
-app.post('/send-email', (req, res) => {
+app.post('/send-email', async (req, res) => {
   const { template, params } = req.body;
 
   const data = JSON.stringify({
@@ -66,21 +69,23 @@ app.post('/send-email', (req, res) => {
     method: 'post',
     url: 'https://api.emailjs.com/api/v1.0/email/send',
     headers: {
-      'Access-Control-Allow': '*',
+      'Access-Control-Allow-Origin': '*',
       'Content-Type': 'application/json',
     },
     data: data,
   };
 
-  axios(config)
-    .then(function (response) {
-      console.log('Success!!!', JSON.stringify(response.data));
-      res.status(200).json({ message: 'Email sent successfully!' });
-    })
-    .catch(function (error) {
-      console.log(error);
-      res.status(500).json({ error: 'Failed to send email' });
-    });
+  try {
+    const response = await axios(config);
+    console.log('Success!!!', JSON.stringify(response.data));
+    res.status(200).json({ message: 'Email sent successfully!' });
+  } catch (error) {
+    console.error(
+      'Error details:',
+      error.response ? error.response.data : error.message
+    );
+    res.status(500).json({ error: 'Failed to send email' });
+  }
 });
 
 app.get('/record-behavior', async (req, res) => {
@@ -121,7 +126,15 @@ app.get('/record-behavior', async (req, res) => {
   }
 });
 
-const testFirebaseConnection = async () => {
+app.get('/debug-env', (req, res) => {
+  res.json({
+    service_id: process.env.EMAILJS_SERVICEID,
+    public_key: process.env.EMAILJS_PUBLICKEY,
+    private_key: process.env.EMAILJS_PRIVATEKEY,
+  });
+});
+
+app.get('/debug-firebase', async (req, res) => {
   try {
     // Get a reference to the Firestore database
     const testDocRef = collection(db, 'groups');
@@ -135,9 +148,7 @@ const testFirebaseConnection = async () => {
   } catch (error) {
     console.error('Error connecting to Firebase:', error);
   }
-};
-
-testFirebaseConnection();
+});
 
 app.listen(port, () => {
   console.log(`Server is running on port ${port}`);
