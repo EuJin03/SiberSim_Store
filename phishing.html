@@ -2,9 +2,35 @@
 <html>
   <head>
     <title>You have been pwned!</title>
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        text-align: center;
+        padding: 50px;
+      }
+      h1 {
+        font-size: 36px;
+        margin-bottom: 20px;
+      }
+      p {
+        font-size: 18px;
+        margin-bottom: 20px;
+      }
+    </style>
   </head>
   <body>
     <h1>You have been pwned!</h1>
-    <p>This is a simple page to inform you that you have been pwned.</p>
+    <p>
+      Your account has been compromised. Please enter your password to confirm
+      your identity.
+    </p>
+    <form action="" method="">
+      <input type="password" name="password" placeholder="Password" />
+      <input
+        type="button"
+        value="Submit"
+        onclick="alert(document.getElementsByName('password')[0].value)"
+      />
+    </form>
   </body>
 </html>

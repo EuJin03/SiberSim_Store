@@ -10,6 +10,9 @@ import {
   doc,
   updateDoc,
   addDoc,
+  getDoc,
+  query,
+  where,
 } from 'firebase/firestore';
 import path from 'path';
 import { fileURLToPath } from 'url'; // Import fileURLToPath to use import.meta.url
@@ -43,6 +46,23 @@ app.use(express.json());
 // Serve static files from the "public" directory
 app.use(express.static('public'));
 
+async function getUserById(userId) {
+  try {
+    const userRef = doc(db, 'users', userId);
+    const userDoc = await getDoc(userRef);
+
+    if (userDoc.exists()) {
+      const userData = userDoc.data();
+      return userData;
+    } else {
+      throw new Error('User not found');
+    }
+  } catch (error) {
+    console.error('Error getting user:', error);
+    throw error;
+  }
+}
+
 // Route to serve the landing page
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'index.html'));
@@ -53,21 +73,32 @@ app.get('/phishing-link', (req, res) => {
   res.sendFile(path.join(__dirname, 'phishing.html'));
 });
 
+// Route to serve the error page
+app.get('/error-404', (req, res) => {
+  res.sendFile(path.join(__dirname, 'error.html'));
+});
+
 // Route to send email templates
 app.post('/send-email', async (req, res) => {
-  const { template, params } = req.body;
+  const { params } = req.body;
 
   const data = JSON.stringify({
     service_id: process.env.EMAILJS_SERVICEID,
-    template_id: template,
+    template_id: params.template,
     user_id: process.env.EMAILJS_PUBLICKEY,
-    template_params: params,
+    template_params: {
+      fullname: params.fullname,
+      email: params.email,
+      url: params.url,
+      to_email: params.to_email,
+      from_service: params.from_service,
+    },
     accessToken: process.env.EMAILJS_PRIVATEKEY,
   });
 
   const config = {
     method: 'post',
-    url: 'https://api.emailjs.com/api/v1.0/email/send',
+    url: `https://api.emailjs.com/api/v1.0/email/send`,
     headers: {
       'Access-Control-Allow-Origin': '*',
       'Content-Type': 'application/json',
@@ -89,10 +120,15 @@ app.post('/send-email', async (req, res) => {
 });
 
 app.get('/record-behavior', async (req, res) => {
-  const { templateId, userId, groupId } = req.query;
+  const { templateId, userId, groupId, uniqueId } = req.query;
+
+  console.log('templateId:', templateId);
+  console.log('userId:', userId);
+  console.log('groupId:', groupId);
+  console.log('uniqueId:', uniqueId);
 
   try {
-    // Get the group document
+    // Get a reference to the group document
     const groupRef = doc(db, 'groups', groupId);
     const groupDoc = await getDoc(groupRef);
 
@@ -102,36 +138,66 @@ app.get('/record-behavior', async (req, res) => {
 
     const groupData = groupDoc.data();
 
-    // Create a new result
-    const newResult = {
-      user: userId,
-      templateId: templateId,
-      comment: 'User clicked the phishing link',
-    };
+    try {
+      let username = '';
 
-    // Add the new result to the group's results array
-    const updatedGroup = {
-      ...groupData,
-      results: [...(groupData.results || []), newResult],
-    };
+      try {
+        // Get the user's display name using getUserById
+        const user = await getUserById(userId);
+        username = user.displayName || '';
+      } catch (error) {
+        console.error('Error getting user:', error);
+        // Handle the error if unable to fetch the user's display name
+      }
 
-    // Update the group document
-    await updateDoc(groupRef, updatedGroup);
+      // Find the result object with the matching user ID
+      const existingResult = groupData.results.find(
+        result => result.user === userId && result.id === uniqueId
+      );
 
-    // Redirect the user to the phishing page
-    res.redirect('/phishing-link');
+      if (existingResult) {
+        console.log('Result exists:', existingResult);
+        // If the result object exists, update the comment field and username
+        const updatedResults = groupData.results.map(result => {
+          if (result.user === userId && result.id === uniqueId) {
+            return {
+              ...result,
+              comment: 'User clicked the phishing link',
+              username: username,
+            };
+          }
+          return result;
+        });
+
+        await updateDoc(groupRef, { results: updatedResults });
+      } else {
+        console.log('Result does not exist');
+        // If the result object doesn't exist, create a new one
+        const newResult = {
+          user: userId,
+          username: username,
+          templateId: templateId,
+          comment: 'User clicked the phishing link',
+          updatedAt: new Date().toISOString(),
+        };
+
+        const updatedResults = [...groupData.results, newResult];
+
+        await updateDoc(groupRef, { results: updatedResults });
+      }
+
+      // Redirect the user to the phishing page
+      res.redirect('/phishing-link');
+    } catch (error) {
+      console.error('Error updating result:', error);
+      res.status(500).json({ error: 'Internal Server Error' });
+      res.redirect('/error.html');
+    }
   } catch (error) {
-    console.error(error);
+    console.error('Error getting group document:', error);
     res.status(500).json({ error: 'Internal Server Error' });
+    res.redirect('/error.html');
   }
-});
-
-app.get('/debug-env', (req, res) => {
-  res.json({
-    service_id: process.env.EMAILJS_SERVICEID,
-    public_key: process.env.EMAILJS_PUBLICKEY,
-    private_key: process.env.EMAILJS_PRIVATEKEY,
-  });
 });
 
 app.get('/debug-firebase', async (req, res) => {
@@ -147,6 +213,67 @@ app.get('/debug-firebase', async (req, res) => {
     console.log('Firebase connection successful!');
   } catch (error) {
     console.error('Error connecting to Firebase:', error);
+  }
+});
+
+app.post('/scan-url', async (req, res) => {
+  const { url } = req.body;
+
+  try {
+    // Step 1: Submit URL for scan request
+    const scanResponse = await axios.post(
+      'https://developers.checkphish.ai/api/neo/scan',
+      {
+        apiKey: process.env.CHECKPHISH_KEY,
+        urlInfo: { url },
+        scanType: 'full',
+      }
+    );
+
+    const { jobID } = scanResponse.data;
+
+    // Step 2: Poll the API until the scan status is "DONE"
+    let scanResult = null;
+    while (true) {
+      const statusResponse = await axios.post(
+        'https://developers.checkphish.ai/api/neo/scan/status',
+        {
+          apiKey: process.env.CHECKPHISH_KEY,
+          jobID,
+          insights: true,
+        }
+      );
+
+      scanResult = statusResponse.data;
+
+      if (scanResult.status === 'DONE') {
+        break;
+      }
+
+      // Wait for a short interval before polling again
+      await new Promise(resolve => setTimeout(resolve, 1000));
+    }
+
+    // Process the scan result as needed
+    console.log('Scan Result:', scanResult);
+
+    res.json(scanResult);
+  } catch (error) {
+    console.error('Error scanning URL:', error);
+    res.status(500).json({ error: 'Failed to scan URL' });
+  }
+});
+
+app.post('/api/scan-email', async (req, res) => {
+  const { email } = req.body;
+
+  try {
+    const scanner = new SpamScanner();
+    const scan = await scanner.scan(email);
+    res.json(scan);
+  } catch (error) {
+    console.error('Failed to scan email:', error);
+    res.status(500).json({ error: 'Failed to scan email' });
   }
 });
 
