@@ -122,11 +122,6 @@ app.post('/send-email', async (req, res) => {
 app.get('/record-behavior', async (req, res) => {
   const { templateId, userId, groupId, uniqueId } = req.query;
 
-  console.log('templateId:', templateId);
-  console.log('userId:', userId);
-  console.log('groupId:', groupId);
-  console.log('uniqueId:', uniqueId);
-
   try {
     // Get a reference to the group document
     const groupRef = doc(db, 'groups', groupId);
@@ -150,41 +145,26 @@ app.get('/record-behavior', async (req, res) => {
         // Handle the error if unable to fetch the user's display name
       }
 
-      // Find the result object with the matching user ID
-      const existingResult = groupData.results.find(
-        result => result.user === userId && result.id === uniqueId
+      // Filter out any existing results for this user and template
+      const filteredResults = groupData.results.filter(
+        result => !(result.user === userId && result.templateId === templateId)
       );
 
-      if (existingResult) {
-        console.log('Result exists:', existingResult);
-        // If the result object exists, update the comment field and username
-        const updatedResults = groupData.results.map(result => {
-          if (result.user === userId && result.id === uniqueId) {
-            return {
-              ...result,
-              comment: 'User clicked the phishing link',
-              username: username,
-            };
-          }
-          return result;
-        });
+      // Create a new result object
+      const newResult = {
+        id: uniqueId,
+        user: userId,
+        username: username,
+        templateId: templateId,
+        comment: 'User clicked the phishing link',
+        updatedAt: new Date().toISOString(),
+      };
 
-        await updateDoc(groupRef, { results: updatedResults });
-      } else {
-        console.log('Result does not exist');
-        // If the result object doesn't exist, create a new one
-        const newResult = {
-          user: userId,
-          username: username,
-          templateId: templateId,
-          comment: 'User clicked the phishing link',
-          updatedAt: new Date().toISOString(),
-        };
+      // Add the new result to the filtered results
+      const updatedResults = [...filteredResults, newResult];
 
-        const updatedResults = [...groupData.results, newResult];
-
-        await updateDoc(groupRef, { results: updatedResults });
-      }
+      // Update the group document with the new results
+      await updateDoc(groupRef, { results: updatedResults });
 
       // Redirect the user to the phishing page
       res.redirect('/phishing-link');
@@ -218,6 +198,7 @@ app.get('/debug-firebase', async (req, res) => {
 
 app.post('/scan-url', async (req, res) => {
   const { url } = req.body;
+  console.log('testtttt', url);
 
   try {
     // Step 1: Submit URL for scan request
